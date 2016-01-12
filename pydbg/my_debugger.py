@@ -74,7 +74,7 @@ class debugger():
 
 			if debug_event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT:
 				exception = debug_event.u.Exception.ExceptionRecord.ExceptionCode
-				self.exception_address = debug_event.Exception.ExceptionRecord.ExceptionAddress
+				self.exception_address = debug_event.u.Exception.ExceptionRecord.ExceptionAddress
 
 				if exception == EXCEPTION_ACCESS_VIOLATION:
 					print "Access Violation Detected,"
@@ -151,7 +151,7 @@ class debugger():
 			return False
 			
 	def exception_handler_breakpoint(self):
-		print "[*] Inside the breakpoin handler."
+		print "[*] Inside the breakpoint handler."
 		print "Exception Address : 0x%08x" % self.exception_address
 
 		return DBG_CONTINUE
