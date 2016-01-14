@@ -12,7 +12,7 @@ class debugger():
 		self.context 			= None
 		self.breakpoints			= {}
 		self.exception			= None
-		self.exception_address	= None
+		self.exception_address		= None
 
 	def load(self, path_to_exe):
 		creation_flags = DEBUG_PROCESS
@@ -39,13 +39,12 @@ class debugger():
 			print "[*] PID : %d"%process_information.dwProcessId
 
 			self.h_process = self.open_process(process_information.dwProcessId)
-
 		else:
 			print "[*] Error : 0x%08x."%kernel32.GetLastError()
 
 
 	def open_process(self, pid):
-		h_process = kernel32.OpenProcess()
+		h_process = kernel32.OpenProcess(PROCESS_ALL_ACCESS,False,pid) 
 		return h_process
 
 	def attach(self,pid):
@@ -61,11 +60,12 @@ class debugger():
 		while self.debugger_active == True:
 			self.get_debug_event()
 
-	def get_debug_event(self):
 
+	def get_debug_event(self):
+		print "1"
 		debug_event = DEBUG_EVENT()
 		continue_status =  DBG_CONTINUE
-
+		print "2"
 		if kernel32.WaitForDebugEvent(byref(debug_event), INFINITE):
 			self.h_thread = self.open_thread(debug_event.dwThreadId)
 			self.context = self.get_thread_context(self.h_thread)
@@ -80,10 +80,8 @@ class debugger():
 					print "Access Violation Detected,"
 				elif exception == EXCEPTION_BREAKPOINT:
 					continue_status = self.exception_handler_breakpoint()		
-
 				elif exception == EXCEPTION_GUARD_PAGE:
 					print "Guard Page Acess Detected."
-
 				elif exception == EXCEPTION_SINGLE_STEP:
 					print "Single Stepping."
 			
@@ -152,23 +150,39 @@ class debugger():
 			
 	def exception_handler_breakpoint(self):
 		print "[*] Inside the breakpoint handler."
-		print "Exception Address : 0x%08x" % self.exception_address
+		print "Exception Address : 0x%x" % self.exception_address
 
-		return DBG_CONTINUE
+		if not self.breakpoints.has_key(self.exception_address):
+			return DBG_CONTINUE
+		else:
+			print "[*] Hit user defined breakpoint."
+			self.write_process_memory(self.exception_address, self.breakpoints[self.exception_address])
+
+			self.context = self.get_thread_context(h_thread=self.h_thread)
+			self.context.Eip -= 1
+            
+			kernel32.SetThreadContext(self.h_thread,byref(self.context))
+            
+			continue_status = DBG_CONTINUE
+		
+		return continue_status
 
 	def read_process_memory(self, address, length):
 		data		= ""
 		read_buf	= create_string_buffer(length)
 		count 		= c_ulong(0)
 
+		kernel32.ReadProcessMemory.argtypes = [HANDLE, LPVOID, LPVOID, WORD, PVOID]
 		if not kernel32.ReadProcessMemory(self.h_process,
 							address,
 							read_buf,
 							length,
 							byref(count)):
+			print "ReadProcMem Error %d, prochandle %x addr %x"%(kernel32.GetLastError(), self.h_process, address)
 			return False
 		else:
 			data += read_buf.raw 
+			print "ReadProcMem ok"
 			return data
 
 	def write_process_memory(self, address, data):
@@ -176,26 +190,41 @@ class debugger():
 		length = len(data)
 
 		c_data = c_char_p(data[count.value:])
-
-		if not kernel32.WriteProcessMemory(self.h_process, address, c_data, length, byref(byref(count))):
+		kernel32.WriteProcessMemory.argtypes = [HANDLE, LPVOID, c_char_p, WORD, PVOID]
+		if not kernel32.WriteProcessMemory(self.h_process, address, c_data, length, byref(count)):
+			print "WritePRocessMem Error"
 			return False
 		else:
+			print "WriteProcMem OK"
 			return True
 
 	def bp_set(self, address):
 		if not self.breakpoints.has_key(address):
-			try:
-				original_byte = self.read_process_memory(address, 1)
-				self.write_process_memory(address, "\xCC")
-				self.breakpoints[address] = (original_byte)
-			except:
-				return False
+			dbg = 0
+			#try:
+			dbg+=1
+			original_byte = self.read_process_memory(address, 1)
+			dbg+=1
+			self.write_process_memory(address, "\xCC")
+			dbg+=1
+			self.breakpoints[address] = (original_byte)
+			#except:
+			#	print "bp_set error %d"%dbg
+			#	return False
+			print "bp_set ok %x"%address
 		return True
 
 	def func_resolve(self, dll, function):
+
+		kernel32.GetModuleHandleA.restype = HANDLE 
 		handle = kernel32.GetModuleHandleA(dll)
+		
+		kernel32.GetProcAddress.restype = PVOID
+		kernel32.GetProcAddress.argtypes = [HANDLE, LPTSTR]
 		address = kernel32.GetProcAddress(handle, function)
 
+		print "handle : %x, addr : %x"%(handle, address)
+		kernel32.CloseHandle.argtypes = [HANDLE]
 		kernel32.CloseHandle(handle)
 
 		return address
