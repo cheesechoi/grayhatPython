@@ -1,5 +1,5 @@
 import my_debugger
-
+#it's just test to check commit msg of slack.
 debugger = my_debugger.debugger()
 
 if False: # test 1
@@ -15,6 +15,7 @@ else:
 	
 	debugger.bp_set(printf_address)
 	
+
 	"""
 	list = debugger.enumerate_threads()
 	
