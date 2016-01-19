@@ -62,13 +62,12 @@ class debugger():
 
 
 	def get_debug_event(self):
-		print "1"
 		debug_event = DEBUG_EVENT()
 		continue_status =  DBG_CONTINUE
-		print "2"
+
 		if kernel32.WaitForDebugEvent(byref(debug_event), INFINITE):
 			self.h_thread = self.open_thread(debug_event.dwThreadId)
-			self.context = self.get_thread_context(self.h_thread)
+			self.context = self.get_thread_context(h_thread=self.h_thread)
 
 			print "Event Code : %d Thread ID : %d" % (debug_event.dwDebugEventCode, debug_event.dwThreadId)
 
@@ -103,12 +102,16 @@ class debugger():
 
 	def open_thread(self, thread_id):
 		h_thread = kernel32.OpenThread(THREAD_ALL_ACCESS, None, thread_id)
-		
-		if h_thread is not None:
+
+		if 0 == h_thread:
+			print "[*] OpenThread Failed. %d"%GetLastError()
+			return False
+		elif h_thread is not None:
 			return h_thread
 		else:
 			print "[*] Could not obtain a valid thread handle."
 			return False
+
 	def enumerate_threads(self):
 		thread_entry	= THREADENTRY32()
 		thread_list 	= []
@@ -119,9 +122,7 @@ class debugger():
 			# You have to set the size of the struct
 			# or the call will fail
 			thread_entry.dwSize = sizeof(thread_entry)
-			print "%d"%thread_entry.dwSize
 			success = kernel32.Thread32First(snapshot, byref(thread_entry))
-			print "%d"%success
 			while success:
 				if thread_entry.th32OwnerProcessID == self.pid:
 					thread_list.append(thread_entry.th32ThreadID)
@@ -135,17 +136,16 @@ class debugger():
 		else:
 			return False
 	def get_thread_context(self, thread_id = None, h_thread = None):
-		context = CONTEXT()
+		context = CONTEXT64()
 		context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
 
 		if not h_thread:
-			self.open_thread(thread_id)
-
-		h_thread = self.open_thread(thread_id)
+			h_thread = self.open_thread(thread_id)
+			
 		if kernel32.GetThreadContext(h_thread, byref(context)):
-			kernel32.CloseHandle(h_thread)
 			return context 
 		else:
+			print "Could not get thread context, %d %x"%(GetLastError(), h_thread)
 			return False
 			
 	def exception_handler_breakpoint(self):
@@ -159,7 +159,7 @@ class debugger():
 			self.write_process_memory(self.exception_address, self.breakpoints[self.exception_address])
 
 			self.context = self.get_thread_context(h_thread=self.h_thread)
-			self.context.Eip -= 1
+			self.context.Rip -= 1
             
 			kernel32.SetThreadContext(self.h_thread,byref(self.context))
             
