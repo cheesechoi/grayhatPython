@@ -5,13 +5,15 @@ kernel32 = windll.kernel32
 #  
 class debugger():
 	def __init__(self):
-		self.h_process			= None
-		self.pid 				= None
+		self.h_process				= None
+		self.pid 					= None
 		self.debugger_active 		= False
-		self.h_thread			= None
-		self.context 			= None
+		self.h_thread				= None
+		self.context 				= None
 		self.breakpoints			= {}
-		self.exception			= None
+		self.first_breakpoint		= True
+		self.hardware_breakpoint	= {}
+		self.exception				= None
 		self.exception_address		= None
 
 	def load(self, path_to_exe):
@@ -82,7 +84,7 @@ class debugger():
 				elif exception == EXCEPTION_GUARD_PAGE:
 					print "Guard Page Acess Detected."
 				elif exception == EXCEPTION_SINGLE_STEP:
-					print "Single Stepping."
+					self.exception_handler_single_step()
 			
 			#raw_input("Press a key to continue...")
 			#self.debugger_active = False
@@ -228,3 +230,95 @@ class debugger():
 		kernel32.CloseHandle(handle)
 
 		return address
+
+
+	def bp_set_hw(self, address, length, condition):
+		print "what"
+		if length not in (1, 2, 4):
+			return False
+		else:
+			length -= 1
+
+		if condition not in (HW_ACCESS, HW_EXECUTE, HW_WRITE):
+			return False
+
+		if not self.hardware_breakpoint.has_key(0):
+			available = 0
+		elif not self.hardware_breakpoint.has_key(1):
+			available = 1
+		elif not self.hardware_breakpoint.has_key(2):
+			available = 2
+		elif not self.hardware_breakpoint.has_key(3):
+			available = 3
+		else:
+			return False
+
+		for thread_id in self.enumerate_threads():
+			context = self.get_thread_context(thread_id=thread_id)
+
+			context.Dr7 |= 1 << (available*2)
+
+			if available == 0:
+				context.Dr0 = address
+			elif available == 1:
+				context.Dr1 = address
+			elif available == 2:
+				context.Dr2 = address
+			elif available == 3:
+				context.Dr3 = address
+
+			context.Dr7 |= condition << ((available*4)+16)
+			context.Dr7 |= length <<((available*4) + 18)
+
+			h_thread = self.open_thread(thread_id)
+			kernel32.SetThreadContext(h_thread, byref(context))
+
+			self.hardware_breakpoint[available] = (address, length, condition)
+
+
+		return True
+
+
+
+	def exception_handler_single_step(self):
+		if self.context.Dr6 & 0x1 and self.hardware_breakpoint.has_key(0):
+			slot = 0
+		elif self.context.Dr6 & 0x2 and self.hardware_breakpoint.has_key(1):
+			slot = 1
+		elif self.context.Dr6 & 0x4 and self.hardware_breakpoint.has_key(2):
+			slot = 2
+		elif self.context.Dr6 & 0x8 and self.hardware_breakpoint.has_key(3):
+			slot = 3
+		else:
+			continue_status = DBG_EXCEPTION_NOT_HANDLED
+
+		if self.bp_del_hw(slot):
+			continue_status = DBG_CONTINUE
+
+		print "[*] Hardware breakpoint removed."
+		return continue_status
+
+	def bp_del_hw(self,slot):
+		for thread_id in self.enumerate_threads():
+			context = self.get_thread_context(thread_id=thread_id)
+
+			context.Dr7 &= ~(1<< (slot*2))
+
+			if slot == 0:
+				context.Dr0 = 0x00000000
+			elif slot == 1:
+				context.Dr1 = 0x00000000
+			elif slot == 2 :
+				context.Dr2 = 0x00000000
+			elif slot == 3:
+				context.Dr3 = 0x00000000
+
+			context.Dr7 &= ~(3 << ((slot * 4) + 16)) # breakpoint condition reset
+			context.Dr7 &= ~(3 << ((slot * 4) + 18)) # length flag reset
+
+			h_thread = self.open_thread(thread_id)
+			kernel32.SetThreadContext(h_thread, byref(context))
+
+		del self.hardware_breakpoint[slot]
+
+		return True
