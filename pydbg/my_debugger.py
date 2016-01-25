@@ -16,6 +16,13 @@ class debugger():
 		self.exception				= None
 		self.exception_address		= None
 
+		system_info = SYSTEM_INFO()
+		kernel32.GetSystemInfo(byref(system_info))
+		self.page_size = system_info.dwPageSize
+
+		self.guarded_pages 			= []
+		self.memory_breakpoints		= {}
+
 	def load(self, path_to_exe):
 		creation_flags = DEBUG_PROCESS
 
@@ -322,3 +329,25 @@ class debugger():
 		del self.hardware_breakpoint[slot]
 
 		return True
+
+	def bp_set_mem(self, address, size):
+		mbi = MEMORY_BASIC_INFORMATION()
+
+		if kernel32.VirtualQueryEx(self.h_process,address,byref(mbi),sizeof(mbi)) < sizeof(mbi):
+			return False
+
+		current_page = mbi.BaseAddress
+
+		while current_page <= address + size :
+			self.guarded_pages.append(current_page)
+			old_protection = c_ulong(0)
+			if not kernel32.VirtualProtectEx(self.h_process, current_page, size, mbi.Protect | PAGE_GUARD, byref(old_protection)):
+				return False
+
+			current_page += self.page_size
+
+		self.memory_breakpoints[address] = (address, size, mbi)
+
+		return True
+
+		
